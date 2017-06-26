@@ -52,14 +52,19 @@ public class V10GProperty implements GProperty {
   }
 
   @Override
+  public String getDefaultValue() {
+    // TODO Auto-generated method stub
+    return input.defaultValue();
+  }
+
+  @Override
   public GType type() {
     return type;
   }
 
   @Override
   public boolean isInline() {
-    return TypeUtils.shouldCreateNewClass(input, input.parentTypes()
-        .toArray(new TypeDeclaration[0]));
+    return TypeUtils.shouldCreateNewClass(input, input.parentTypes().toArray(new TypeDeclaration[0]));
   }
 
   @Override

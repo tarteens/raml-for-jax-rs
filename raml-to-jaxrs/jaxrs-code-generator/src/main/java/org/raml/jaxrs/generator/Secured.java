@@ -13,22 +13,17 @@
  * either express or implied. See the License for the specific
  * language governing permissions and limitations under the License.
  */
-package org.raml.jaxrs.generator.ramltypes;
+package org.raml.jaxrs.generator;
 
-import org.raml.jaxrs.generator.GAbstraction;
+import java.lang.annotation.Documented;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
 
-/**
- * Created by Jean-Philippe Belanger on 12/10/16. Just potential zeroes and ones
- */
-public interface GProperty extends GAbstraction {
+@Documented
+@Target(value = {ElementType.FIELD})
+@Retention(RetentionPolicy.RUNTIME)
+public @interface Secured {
 
-  String name();
-
-  GType type();
-
-  boolean isInline();
-
-  GProperty overrideType(GType type);
-
-  String getDefaultValue();
 }
