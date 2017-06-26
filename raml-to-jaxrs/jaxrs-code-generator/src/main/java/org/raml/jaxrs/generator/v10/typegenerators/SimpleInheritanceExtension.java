@@ -15,15 +15,18 @@
  */
 package org.raml.jaxrs.generator.v10.typegenerators;
 
-import com.squareup.javapoet.ClassName;
-import com.squareup.javapoet.FieldSpec;
-import com.squareup.javapoet.MethodSpec;
-import com.squareup.javapoet.ParameterSpec;
-import com.squareup.javapoet.TypeSpec;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+import javax.lang.model.element.Modifier;
+
 import org.raml.jaxrs.generator.CurrentBuild;
 import org.raml.jaxrs.generator.GenerationException;
 import org.raml.jaxrs.generator.GeneratorType;
 import org.raml.jaxrs.generator.Names;
+import org.raml.jaxrs.generator.ScalarTypes;
 import org.raml.jaxrs.generator.SchemaTypeFactory;
 import org.raml.jaxrs.generator.builders.BuildPhase;
 import org.raml.jaxrs.generator.builders.JavaPoetTypeGenerator;
@@ -36,15 +39,22 @@ import org.raml.jaxrs.generator.extension.types.TypeContext;
 import org.raml.jaxrs.generator.extension.types.TypeExtension;
 import org.raml.jaxrs.generator.ramltypes.GProperty;
 import org.raml.jaxrs.generator.ramltypes.GType;
-import org.raml.jaxrs.generator.v10.*;
+import org.raml.jaxrs.generator.v10.Annotations;
+import org.raml.jaxrs.generator.v10.CreationModel;
+import org.raml.jaxrs.generator.v10.PropertyInfo;
+import org.raml.jaxrs.generator.v10.V10GProperty;
+import org.raml.jaxrs.generator.v10.V10GType;
+import org.raml.jaxrs.generator.v10.V10TypeRegistry;
+import org.raml.jaxrs.generator.v10.types.V10GTypeEnum;
 import org.raml.jaxrs.generator.v10.types.V10TypeFactory;
 import org.raml.v2.api.model.v10.common.Annotable;
 import org.raml.v2.api.model.v10.datamodel.TypeDeclaration;
 
-import javax.lang.model.element.Modifier;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import com.squareup.javapoet.ClassName;
+import com.squareup.javapoet.FieldSpec;
+import com.squareup.javapoet.MethodSpec;
+import com.squareup.javapoet.ParameterSpec;
+import com.squareup.javapoet.TypeSpec;
 
 /**
  * Created by Jean-Philippe Belanger on 1/29/17. Just potential zeroes and ones
@@ -62,8 +72,7 @@ public class SimpleInheritanceExtension implements TypeExtension {
   }
 
   @Override
-  public TypeSpec.Builder onType(TypeContext context, TypeSpec.Builder builder, V10GType objectType,
-                                 BuildPhase buildPhase) {
+  public TypeSpec.Builder onType(TypeContext context, TypeSpec.Builder builder, V10GType objectType, BuildPhase buildPhase) {
 
     if (buildPhase == BuildPhase.INTERFACE) {
       return buildDeclaration(context, objectType);
@@ -76,10 +85,7 @@ public class SimpleInheritanceExtension implements TypeExtension {
 
     ClassName className = originalType.javaImplementationName(context.getModelPackage());
 
-
-    TypeSpec.Builder typeSpec = TypeSpec
-        .classBuilder(className)
-        .addModifiers(Modifier.PUBLIC);
+    TypeSpec.Builder typeSpec = TypeSpec.classBuilder(className).addModifiers(Modifier.PUBLIC);
 
     ClassName parentClassName = (ClassName) originalType.defaultJavaTypeName(context.getModelPackage());
 
@@ -87,8 +93,7 @@ public class SimpleInheritanceExtension implements TypeExtension {
       typeSpec.addSuperinterface(parentClassName);
     }
 
-    typeSpec = runClassExtensions(context, objectType, typeSpec, BuildPhase.IMPLEMENTATION,
-                                  Annotations.ON_TYPE_CLASS_CREATION);
+    typeSpec = runClassExtensions(context, objectType, typeSpec, BuildPhase.IMPLEMENTATION, Annotations.ON_TYPE_CLASS_CREATION);
 
     if (typeSpec == null) {
 
@@ -105,14 +110,11 @@ public class SimpleInheritanceExtension implements TypeExtension {
 
         V10GType type =
             localRegistry.createInlineType(internalTypeName,
-                                           Annotations.CLASS_NAME.get(
-                                                                      Names.typeName(declaration.name(), "Type"),
+                                           Annotations.CLASS_NAME.get(Names.typeName(declaration.name(), "Type"),
                                                                       (Annotable) declaration.implementation()),
                                            (TypeDeclaration) declaration.implementation(), originalType,
-                                           CreationModel.INLINE_FROM_TYPE
-                );
-        TypeGenerator internalGenerator = inlineTypeBuild(localRegistry, currentBuild,
-                                                          GeneratorType.generatorFrom(type));
+                                           CreationModel.INLINE_FROM_TYPE);
+        TypeGenerator internalGenerator = inlineTypeBuild(localRegistry, currentBuild, GeneratorType.generatorFrom(type));
         if (internalGenerator instanceof JavaPoetTypeGenerator) {
           properties.add(new PropertyInfo(localRegistry, declaration.overrideType(type)));
           internalTypeCounter++;
@@ -131,37 +133,54 @@ public class SimpleInheritanceExtension implements TypeExtension {
     return typeSpec;
   }
 
-  private void buildPropertiesForImplementation(TypeContext context, V10GType objectType,
-                                                TypeSpec.Builder typeSpec, List<PropertyInfo> properties) {
+  private void buildPropertiesForImplementation(TypeContext context, V10GType objectType, TypeSpec.Builder typeSpec,
+                                                List<PropertyInfo> properties) {
     for (PropertyInfo propertyInfo : properties) {
 
-      FieldSpec.Builder fieldSpec =
-          FieldSpec.builder(propertyInfo.resolve(context), Names.variableName(propertyInfo.getName()))
-              .addModifiers(Modifier.PRIVATE);
+      FieldSpec.Builder fieldSpec = FieldSpec.builder(propertyInfo.resolve(context), Names.variableName(propertyInfo.getName()))
+          .addModifiers(Modifier.PRIVATE);
+
+      if (propertyInfo.getProperty().getDefaultValue() != null) {
+        Class<?> clazz = ScalarTypes.scalarToJavaType(propertyInfo.getType());
+        if (clazz == null) {
+          // Is enum
+          if (propertyInfo.getType() instanceof V10GTypeEnum) {
+            V10GTypeEnum enumType = (V10GTypeEnum) propertyInfo.getType();
+            String defaultValue = Names.constantName(propertyInfo.getProperty().getDefaultValue());
+            fieldSpec.initializer("$L", enumType.name() + "." + defaultValue);
+          }
+        } else {
+          fieldSpec.initializer("$L", instanceDefaultValue(clazz, propertyInfo.getProperty().getDefaultValue()));
+        }
+      }
 
       if (propertyInfo.getName().equals(objectType.discriminator())) {
         fieldSpec.initializer("$S", objectType.discriminatorValue());
       }
 
       fieldSpec =
-          context.onField(context, typeSpec, fieldSpec, objectType,
-                          (V10GProperty) propertyInfo.getProperty(),
-                          BuildPhase.IMPLEMENTATION, PredefinedFieldType.PROPERTY);
+          context.onField(context, typeSpec, fieldSpec, objectType, (V10GProperty) propertyInfo.getProperty(),
+                          BuildPhase.IMPLEMENTATION,
+                          PredefinedFieldType.PROPERTY);
 
       fieldSpec =
-          currentBuild.getFieldExtension(Annotations.ON_TYPE_FIELD_CREATION, objectType)
-              .onField(context, typeSpec, fieldSpec, objectType, (V10GProperty) propertyInfo.getProperty(),
-                       BuildPhase.IMPLEMENTATION, PredefinedFieldType.PROPERTY);
+          currentBuild.getFieldExtension(Annotations.ON_TYPE_FIELD_CREATION, objectType).onField(context,
+                                                                                                 typeSpec,
+                                                                                                 fieldSpec,
+                                                                                                 objectType,
+                                                                                                 (V10GProperty) propertyInfo
+                                                                                                     .getProperty(),
+                                                                                                 BuildPhase.IMPLEMENTATION,
+                                                                                                 PredefinedFieldType.PROPERTY);
 
       if (fieldSpec != null) {
 
         typeSpec.addField(fieldSpec.build());
       }
 
-      MethodSpec.Builder getSpec = MethodSpec
-          .methodBuilder(Names.methodName("get", Names.typeName(propertyInfo.getName())))
-          .addModifiers(Modifier.PUBLIC)
-          .addStatement("return this." + Names.variableName(propertyInfo.getName()));
+      MethodSpec.Builder getSpec =
+          MethodSpec.methodBuilder(Names.methodName("get", Names.typeName(propertyInfo.getName()))).addModifiers(Modifier.PUBLIC)
+              .addStatement("return this." + Names.variableName(propertyInfo.getName()));
 
       getSpec.returns(propertyInfo.resolve(context));
       getSpec =
@@ -175,14 +194,15 @@ public class SimpleInheritanceExtension implements TypeExtension {
 
       if (!propertyInfo.getName().equals(objectType.discriminator())) {
 
-        MethodSpec.Builder setSpec = MethodSpec
-            .methodBuilder(Names.methodName("set", Names.typeName(propertyInfo.getName())))
-            .addModifiers(Modifier.PUBLIC)
-            .addStatement("this." + Names.variableName(propertyInfo.getName()) + " = " + Names
-                .variableName(propertyInfo.getName()));
+        MethodSpec.Builder setSpec =
+            MethodSpec
+                .methodBuilder(Names.methodName("set", Names.typeName(propertyInfo.getName())))
+                .addModifiers(Modifier.PUBLIC)
+                .addStatement("this." + Names.variableName(propertyInfo.getName()) + " = "
+                                  + Names.variableName(propertyInfo.getName()));
 
-        ParameterSpec.Builder parameterSpec = ParameterSpec
-            .builder(propertyInfo.resolve(context), Names.variableName(propertyInfo.getName()));
+        ParameterSpec.Builder parameterSpec =
+            ParameterSpec.builder(propertyInfo.resolve(context), Names.variableName(propertyInfo.getName()));
 
         setSpec.addParameter(parameterSpec.build());
 
@@ -196,6 +216,30 @@ public class SimpleInheritanceExtension implements TypeExtension {
         }
       }
     }
+  }
+
+  private Object instanceDefaultValue(Class<?> clazz, String defaultValue) {
+
+    // Search constructor with String parameter
+    try {
+      java.lang.reflect.Constructor<?> constructor = clazz.getConstructor(new Class[] {String.class});
+      if (constructor != null) {
+        return constructor.newInstance(defaultValue);
+      }
+    } catch (Exception e) {
+      e.printStackTrace();
+    }
+
+    // Search static Method valueOf(<String>)
+    try {
+      Method m = clazz.getMethod("valueOf", new Class[] {String.class});
+      if (m != null) {
+        return m.invoke(null, defaultValue);
+      }
+    } catch (Exception e) {
+    }
+
+    return null;
   }
 
   private TypeSpec.Builder buildDeclaration(TypeContext context, V10GType objectType) {
@@ -213,14 +257,12 @@ public class SimpleInheritanceExtension implements TypeExtension {
 
         V10GType type =
             localRegistry.createInlineType(internalTypeName,
-                                           Annotations.CLASS_NAME.get(
-                                                                      Names.typeName(declaration.name(), "Type"),
+                                           Annotations.CLASS_NAME.get(Names.typeName(declaration.name(), "Type"),
                                                                       (Annotable) declaration.implementation()),
-                                           (TypeDeclaration) declaration.implementation(),
-                                           originalType, CreationModel.INLINE_FROM_TYPE);
+                                           (TypeDeclaration) declaration.implementation(), originalType,
+                                           CreationModel.INLINE_FROM_TYPE);
 
-        TypeGenerator internalGenerator = inlineTypeBuild(localRegistry, currentBuild,
-                                                          GeneratorType.generatorFrom(type));
+        TypeGenerator internalGenerator = inlineTypeBuild(localRegistry, currentBuild, GeneratorType.generatorFrom(type));
         if (internalGenerator instanceof JavaPoetTypeGenerator) {
           properties.add(new PropertyInfo(localRegistry, declaration.overrideType(type)));
           context.createInternalClass((JavaPoetTypeGenerator) internalGenerator);
@@ -236,11 +278,9 @@ public class SimpleInheritanceExtension implements TypeExtension {
 
     ClassName interf = (ClassName) originalType.defaultJavaTypeName(context.getModelPackage());
 
-    TypeSpec.Builder typeSpec = TypeSpec
-        .interfaceBuilder(interf)
+    TypeSpec.Builder typeSpec = TypeSpec.interfaceBuilder(interf)
         // .addAnnotation(AnnotationSpec.builder(RamlGenerator.class).addMember("value", "$S", "ramlforjaxrs-simple").build())
         .addModifiers(Modifier.PUBLIC);
-
 
     for (GType parentType : parentTypes) {
 
@@ -265,13 +305,13 @@ public class SimpleInheritanceExtension implements TypeExtension {
     return typeSpec;
   }
 
-  private void buildPropertiesForInterface(TypeContext context, V10GType objectType,
-                                           List<PropertyInfo> properties, TypeSpec.Builder typeSpec) {
+  private void buildPropertiesForInterface(TypeContext context, V10GType objectType, List<PropertyInfo> properties,
+                                           TypeSpec.Builder typeSpec) {
     for (PropertyInfo propertyInfo : properties) {
 
-      MethodSpec.Builder getSpec = MethodSpec
-          .methodBuilder(Names.methodName("get", propertyInfo.getName()))
-          .addModifiers(Modifier.PUBLIC, Modifier.ABSTRACT);
+      MethodSpec.Builder getSpec =
+          MethodSpec.methodBuilder(Names.methodName("get", propertyInfo.getName())).addModifiers(Modifier.PUBLIC,
+                                                                                                 Modifier.ABSTRACT);
       getSpec.returns(propertyInfo.resolve(context));
 
       getSpec =
@@ -284,14 +324,13 @@ public class SimpleInheritanceExtension implements TypeExtension {
       }
 
       if (!propertyInfo.getName().equals(objectType.discriminator())) {
-        MethodSpec.Builder setSpec = MethodSpec
-            .methodBuilder(Names.methodName("set", propertyInfo.getName()))
-            .addModifiers(Modifier.PUBLIC, Modifier.ABSTRACT);
-        ParameterSpec.Builder parameterSpec = ParameterSpec
-            .builder(propertyInfo.resolve(context), Names.variableName(propertyInfo.getName()));
+        MethodSpec.Builder setSpec =
+            MethodSpec.methodBuilder(Names.methodName("set", propertyInfo.getName())).addModifiers(Modifier.PUBLIC,
+                                                                                                   Modifier.ABSTRACT);
+        ParameterSpec.Builder parameterSpec =
+            ParameterSpec.builder(propertyInfo.resolve(context), Names.variableName(propertyInfo.getName()));
 
-        setSpec.addParameter(
-            parameterSpec.build());
+        setSpec.addParameter(parameterSpec.build());
 
         setSpec =
             runMethodExtensions(context, objectType, typeSpec, setSpec, Collections.singletonList(parameterSpec),
@@ -304,7 +343,6 @@ public class SimpleInheritanceExtension implements TypeExtension {
       }
     }
   }
-
 
   private static TypeGenerator inlineTypeBuild(V10TypeRegistry registry, CurrentBuild currentBuild, GeneratorType type) {
 
@@ -330,28 +368,28 @@ public class SimpleInheritanceExtension implements TypeExtension {
   }
 
   private MethodSpec.Builder runMethodExtensions(TypeContext context, V10GType objectType, TypeSpec.Builder typeSpec,
-                                                 MethodSpec.Builder getSpec, List<ParameterSpec.Builder> parameters,
-                                                 V10GProperty property,
-                                                 BuildPhase phase,
+                                                 MethodSpec.Builder getSpec,
+                                                 List<ParameterSpec.Builder> parameters, V10GProperty property, BuildPhase phase,
                                                  MethodType methodType, Annotations<MethodExtension> annotations) {
 
-    MethodSpec.Builder builder = context.onMethod(context, typeSpec, getSpec, parameters,
-                                                  objectType, property, phase, methodType);
+    MethodSpec.Builder builder =
+        context.onMethod(context, typeSpec, getSpec, parameters, objectType, property, phase, methodType);
 
-    builder = currentBuild.getMethodExtension(annotations, objectType)
-        .onMethod(context, typeSpec, builder, parameters, objectType, property, phase, methodType);
+    builder =
+        currentBuild.getMethodExtension(annotations, objectType).onMethod(context, typeSpec, builder, parameters, objectType,
+                                                                          property, phase,
+                                                                          methodType);
     return builder;
   }
 
   private TypeSpec.Builder runClassExtensions(TypeContext context, V10GType objectType, TypeSpec.Builder typeSpec,
-                                              BuildPhase buildPhase, Annotations<TypeExtension> annotation) {
+                                              BuildPhase buildPhase,
+                                              Annotations<TypeExtension> annotation) {
     if (annotation == Annotations.ON_TYPE_CLASS_CREATION) {
       typeSpec = context.onType(context, typeSpec, objectType, buildPhase);
     }
 
-    typeSpec =
-        currentBuild.getTypeExtension(annotation, objectType)
-            .onType(context, typeSpec, objectType, buildPhase);
+    typeSpec = currentBuild.getTypeExtension(annotation, objectType).onType(context, typeSpec, objectType, buildPhase);
     return typeSpec;
   }
 }

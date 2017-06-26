@@ -15,8 +15,13 @@
  */
 package org.raml.jaxrs.generator.v10;
 
-import com.google.common.base.Function;
-import com.google.common.collect.Lists;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+
+import javax.annotation.Nullable;
+
 import org.raml.jaxrs.generator.GenerationException;
 import org.raml.jaxrs.generator.extension.resources.ResourceClassExtension;
 import org.raml.jaxrs.generator.extension.resources.ResourceMethodExtension;
@@ -33,17 +38,13 @@ import org.raml.v2.api.model.v10.datamodel.TypeInstance;
 import org.raml.v2.api.model.v10.datamodel.TypeInstanceProperty;
 import org.raml.v2.api.model.v10.declarations.AnnotationRef;
 
-import javax.annotation.Nullable;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
+import com.google.common.base.Function;
+import com.google.common.collect.Lists;
 
 /**
  * Created by Jean-Philippe Belanger on 1/2/17. Just potential zeroes and ones
  */
 public abstract class Annotations<T> {
-
 
   public static Annotations<String> CLASS_NAME = new Annotations<String>() {
 
@@ -134,8 +135,6 @@ public abstract class Annotations<T> {
         }
       };
 
-
-
   public static Annotations<ResponseClassExtension<GMethod>> ON_RESPONSE_CLASS_CREATION =
       new Annotations<ResponseClassExtension<GMethod>>() {
 
@@ -159,8 +158,6 @@ public abstract class Annotations<T> {
           return new ResponseClassExtension.Composite(extension);
         }
       };
-
-
 
   public static Annotations<ResponseMethodExtension<GResponse>> ON_RESPONSE_METHOD_CREATION =
       new Annotations<ResponseMethodExtension<GResponse>>() {
@@ -186,7 +183,6 @@ public abstract class Annotations<T> {
           return new ResponseMethodExtension.Composite(extension);
         }
       };
-
 
   /*
    * Types
@@ -218,6 +214,17 @@ public abstract class Annotations<T> {
     @Override
     public FieldExtension get(Annotable target, Annotable... others) {
       List<String> classNames = getWithDefault("types", "onFieldCreation", null, target, others);
+      List<FieldExtension> extensions = createExtension(classNames);
+
+      return new FieldExtension.Composite(extensions);
+    }
+  };
+
+  public static Annotations<FieldExtension> SENSITIVE_INFO_FIELD = new Annotations<FieldExtension>() {
+
+    @Override
+    public FieldExtension get(Annotable target, Annotable... others) {
+      List<String> classNames = getWithDefault("types", "sensitive-info", null, target, others);
       List<FieldExtension> extensions = createExtension(classNames);
 
       return new FieldExtension.Composite(extensions);
@@ -256,7 +263,6 @@ public abstract class Annotations<T> {
     }
   }
 
-
   private static <T> T getWithDefault(String annotationName, String propName, T def, Annotable target, Annotable... others) {
     T b = Annotations.evaluate(annotationName, propName, target, others);
     if (b == null) {
@@ -293,7 +299,6 @@ public abstract class Annotations<T> {
   }
 
   private static Object findProperty(AnnotationRef annotationRef, String propName) {
-
 
     // annotationRef.structuredValue().properties().get(0).values().get(0).value()
     for (TypeInstanceProperty typeInstanceProperty : annotationRef.structuredValue().properties()) {
